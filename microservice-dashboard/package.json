@@ -1,0 +1,17 @@
+{
+  "name": "microservice-dashboard",
+  "version": "0.1.0",
+  "description": "Dashboard de Saúde de Microsserviços — Agente Coletor",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "prom-client": "^15.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
