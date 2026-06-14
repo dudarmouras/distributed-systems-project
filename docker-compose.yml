@@ -1,6 +1,15 @@
 version: '3.8'
 
 services:
+  # ── Broker MQTT (Mosquitto) ────────────────────────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+    restart: unless-stopped
+
   # ── Agente Coletor Node.js ─────────────────────────────────────────────────
   collector:
     build: .
@@ -9,6 +18,8 @@ services:
     environment:
       - NODE_ENV=production
     restart: unless-stopped
+    depends_on:
+      - mosquitto # O Node.js agora espera o MQTT subir primeiro
 
   # ── Prometheus ─────────────────────────────────────────────────────────────
   prometheus:

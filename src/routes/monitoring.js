@@ -1,7 +1,3 @@
-/**
- * health.js — Rotas GET /health e GET /services
- */
-
 const express = require('express');
 const router = express.Router();
 

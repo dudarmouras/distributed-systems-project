@@ -1,25 +1,43 @@
-// Create server in port 3000 and register all routes
 
 const express = require('express');
+const mqtt = require('mqtt');
 const { getMetricsText, getContentType } = require('./collectors/metricsCollector');
-const ingestRouter = require('./routes/ingest');
-const healthRouter = require('./routes/health');
+const healthRouter = require('./routes/monitoring');
+const { handleMqttMessage } = require('./handlers/mqttHandler');
 
 const PORT = 3000;
 const app = express();
 
 app.use(express.json());
 
-// Req logs
+// Req logs (Apenas para as requisições HTTP restantes)
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
 });
 
-// ─── Routes ───────────────────────────────────────────────────────────────────
+// ─── Conexão MQTT ───
 
-// Ingest metrics 
-app.use('/ingest', ingestRouter);
+// Conecta ao Mosquitto (usando o nome do serviço no docker-compose)
+const mqttClient = mqtt.connect('mqtt://mosquitto:1883');
+
+mqttClient.on('connect', () => {
+  console.log('MQTT: Conectado ao Broker Mosquitto');
+  
+  // Assina o barramento de tópicos exigido (O '+' captura qualquer probe_id) 
+  mqttClient.subscribe('probes/+/metrics', (err) => {
+    if (!err) {
+      console.log('MQTT: Escutando dados no barramento probes/+/metrics');
+    }
+  });
+});
+
+// Aciona o handler sempre que uma mensagem chega de um probe
+mqttClient.on('message', (topic, message) => {
+  handleMqttMessage(topic, message);
+});
+
+// ─── Routes HTTP ───
 
 // Agente status and service list
 app.use('/', healthRouter);
@@ -35,8 +53,9 @@ app.get('/', (req, res) => {
   res.json({
     name: 'Microservice Health Dashboard — Agente Coletor',
     version: '0.1.0',
+    protocolo_mensageria: 'MQTT',
     endpoints: {
-      'POST /ingest':   'Envia snapshot de métricas de um serviço',
+      'MQTT Subscribe': 'probes/+/metrics (Recebe snapshot de métricas dos probes) ',
       'GET  /health':   'Status do agente',
       'GET  /services': 'Lista todos os serviços monitorados',
       'GET  /events':   'Últimos eventos registrados',
@@ -50,14 +69,14 @@ app.use((req, res) => {
   res.status(404).json({ ok: false, error: 'NOT_FOUND' });
 });
 
-// ─── Init ───────────────────────────────────────────────────────────
+// ─── Init ───
 
 app.listen(PORT, () => {
   console.log('════════════════════════════════════════════');
   console.log('  Microservice Health Dashboard');
-  console.log(`  Agente coletor rodando na porta ${PORT}`);
+  console.log(`  Agente coletor rodando na porta ${PORT} [cite: 18]`);
   console.log('════════════════════════════════════════════');
-  console.log(`  POST http://localhost:${PORT}/ingest`);
+  console.log(`  MQTT Escutando mosquitto:1883`);
   console.log(`  GET  http://localhost:${PORT}/health`);
   console.log(`  GET  http://localhost:${PORT}/metrics`);
   console.log('════════════════════════════════════════════');
