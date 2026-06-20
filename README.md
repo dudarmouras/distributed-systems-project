@@ -67,6 +67,7 @@ microservice-dashboard/
 │   ├── validators/
 │   │   └── metricValidator.js       # Middleware de validação sintática do JSON
 │   └── server.js                    # Inicializador do Express (Porta 3000) e Ingestor MQTT
+├── admin_client.js                  # Cliente administrador para visualização via terminal
 ├── docker-compose.yml               # Manifest de criação de contêineres da infraestrutura
 ├── package.json                     # Manifest de scripts e dependências do ecossistema
 └── run_probes.js                    # Script Maestro Interativo para controle de Probes
@@ -78,27 +79,47 @@ microservice-dashboard/
 
 ### 1. Preparação das Dependências Locais
 
-Para rodar os microsserviços simulados diretamente na sua máquina host, garanta as dependências instaladas:
-
 ```bash
 npm install
 ```
 
-### 2. Inicialização da Infraestrutura Docker (Modo Automático)
-
-Para baixar e levantar o servidor Node.js, o broker Mosquitto, o Prometheus e o Grafana isolados em rede, execute:
+### 2. Inicialização da Infraestrutura Docker (Broker + Servidor + Prometheus + Grafana)
 
 ```bash
 docker-compose up -d --build
 ```
 
-### 3. Execução Centralizada dos Microsserviços (Script Maestro)
+Aguarde alguns segundos para todos os contêineres subirem. Você pode verificar o status com:
 
-Para não ter que abrir múltiplos terminais separados, utilize o script interativo desenvolvido para gerenciar e injetar os dados na rede distribuída:
+```bash
+docker-compose logs -f collector
+```
+
+O console do servidor (`collector`) exibirá automaticamente uma **tabela de status** consolidada a cada 10 segundos:
+
+```
+════════════════════════════════════════════════════════════════
+  [ADMIN] STATUS DOS MICROSSERVIÇOS — 2026-06-15T12:00:10.000Z
+════════════════════════════════════════════════════════════════
+  PROBE_ID                  UPTIME(s)    LATÊNCIA(ms)   ÚLTIMO HEARTBEAT
+  ────────────────────────────────────────────────────────────────────────
+  probe_pagamentos          30           145ms          2026-06-15T12:00:05.000Z
+  probe_autenticacao        30           22ms           2026-06-15T12:00:05.000Z
+  probe_pedidos             30           67ms           2026-06-15T12:00:05.000Z
+────────────────────────────────────────────────────────────────
+  Probes ativos: 3 | Total ingestões: 18 | Erros de validação: 0
+════════════════════════════════════════════════════════════════
+```
+
+### 3. Execução dos Múltiplos Probes (Script Maestro Interativo)
+
+Para simular múltiplos microsserviços publicando heartbeats simultaneamente, execute o script maestro em um terminal separado:
 
 ```bash
 node run_probes.js
 ```
+
+O script inicia os 3 probes automaticamente. Cada probe mantém **conexão persistente** com o broker e publica a cada 5 segundos sem reconectar.
 
 **Controles do teclado durante a execução:**
 
@@ -106,6 +127,52 @@ node run_probes.js
 - `2` — Interromper/Ressuscitar o microsserviço de Autenticação
 - `3` — Interromper/Ressuscitar o microsserviço de Pedidos
 - `Ctrl + C` — Derrubar todos os processos filhos e sair
+
+### 4. Conectar o Cliente Administrador
+
+Para visualizar o estado global dos microsserviços em **tempo real** diretamente no terminal (sem depender do console do Docker), abra um novo terminal e execute:
+
+```bash
+node admin_client.js
+```
+
+O cliente atualiza a tabela automaticamente a cada 5 segundos. A saída esperada é:
+
+```
+════════════════════════════════════════════════════════════════
+  DASHBOARD ADMINISTRADOR — Saúde de Microsserviços
+  Atualizado em: 2026-06-15T12:00:15.000Z
+════════════════════════════════════════════════════════════════
+
+  ── AGENTE COLETOR ──────────────────────────────────────────
+  Status:            [OK]
+  Uptime:            65s
+  Probes Monitorados:3
+  Ingestões MQTT:    36
+  Erros de Validação:0
+  Servidor iniciado: 2026-06-15T11:59:10.000Z
+
+  ── MICROSSERVIÇOS MONITORADOS ──────────────────────────────
+  PROBE_ID                  UPTIME(s)    LATENCIA(ms)   ULTIMO HEARTBEAT
+  ────────────────────────────────────────────────────────────────────────
+  probe_pagamentos          60           145ms          2026-06-15T12:00:10.000Z
+  probe_autenticacao        60           22ms           2026-06-15T12:00:10.000Z
+  probe_pedidos             60           67ms           2026-06-15T12:00:10.000Z
+
+════════════════════════════════════════════════════════════════
+  Servidor: http://localhost:3000 | Atualizando a cada 5s | Ctrl+C para sair
+════════════════════════════════════════════════════════════════
+```
+
+**Variáveis de ambiente opcionais:**
+
+```bash
+# Conectar a um servidor em outro host/porta
+SERVER_URL=http://192.168.1.10:3000 node admin_client.js
+
+# Alterar o intervalo de atualização para 10 segundos
+REFRESH=10 node admin_client.js
+```
 
 ---
 
@@ -119,6 +186,22 @@ node run_probes.js
 | `http://localhost:3000/metrics` | GET | Endpoint bruto OpenMetrics formatado para raspagem do Prometheus Server. |
 | `http://localhost:9090` | HTTP Web | Console nativo de expressões do Prometheus Server. |
 | `http://localhost:3001` | HTTP Web | Interface do Grafana para visualização de Dashboards (Credenciais: `admin/admin`). |
+
+**Exemplos com curl:**
+
+```bash
+# Verificar saúde do agente coletor
+curl http://localhost:3000/health
+
+# Listar todos os microsserviços monitorados e seus dados em memória
+curl http://localhost:3000/services
+
+# Ver os últimos 20 eventos registrados
+curl http://localhost:3000/events
+
+# Ver os últimos 5 eventos
+curl "http://localhost:3000/events?n=5"
+```
 
 ---
 
