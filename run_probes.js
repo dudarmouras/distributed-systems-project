@@ -5,7 +5,12 @@ const readline = require('readline');
 const probes = [
   { id: '1', name: 'pagamentos.js', ref: null },
   { id: '2', name: 'autenticacao.js', ref: null },
-  { id: '3', name: 'pedidos.js', ref: null }
+  { id: '3', name: 'pedidos.js', ref: null },
+  { id: '4', name: 'estoque.js', ref: null },
+  { id: '5', name: 'gateway.js', ref: null },
+  { id: '6', name: 'notificacoes.js', ref: null },
+  { id: '7', name: 'relatorios.js', ref: null },
+  { id: '8', name: 'cache.js', ref: null }
 ];
 
 console.log('🚀 Iniciando o Maestro dos Probes...\n');
@@ -13,6 +18,11 @@ console.log('CONTROLES DO TECLADO:');
 console.log(' [1] Ligar/Desligar pagamentos');
 console.log(' [2] Ligar/Desligar autenticação');
 console.log(' [3] Ligar/Desligar pedidos');
+console.log(' [4] Ligar/Desligar estoque');
+console.log(' [5] Ligar/Desligar gateway');
+console.log(' [6] Ligar/Desligar notificações');
+console.log(' [7] Ligar/Desligar relatórios');
+console.log(' [8] Ligar/Desligar cache');
 console.log(' [Ctrl+C] Encerrar tudo e sair\n');
 console.log('--------------------------------------------------');
 
