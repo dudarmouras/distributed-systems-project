@@ -1,12 +1,26 @@
 const express = require('express');
 const mqtt = require('mqtt');
 const { getMetricsText, getContentType } = require('./collectors/metricsCollector');
+const { updateStatusMetric } = require('./collectors/metricsCollector');
 const healthRouter = require('./routes/monitoring');
 const { handleMqttMessage } = require('./handlers/mqttHandler');
-const { getAllServices, getStats } = require('./state/store');
+const {
+  getAllServices,
+  getStats,
+  restoreFromDisk,
+  persistSnapshot,
+  checkStaleProbes,
+  STALE_TIMEOUT_MS,
+} = require('./state/store');
 
 const PORT = 3000;
-const ADMIN_TABLE_INTERVAL = 10 * 1000; // Exibe a tabela de status a cada 10 segundos
+const ADMIN_TABLE_INTERVAL = 10 * 1000;   // Exibe a tabela de status a cada 10 segundos
+const WATCHDOG_INTERVAL = 5 * 1000;       // Verifica probes inativos a cada 5 segundos
+const PERSIST_INTERVAL = 10 * 1000;       // Grava snapshot em disco a cada 10 segundos
+
+// Restaura o estado salvo em disco (se houver) ANTES de aceitar qualquer
+// conexão MQTT — assim nenhuma mensagem nova se perde nessa janela.
+restoreFromDisk();
 
 const app = express();
 
@@ -124,19 +138,21 @@ function printAdminTable() {
   } else {
     // Cabeçalho da tabela
     const col1 = 'PROBE_ID'.padEnd(25);
-    const col2 = 'UPTIME(s)'.padEnd(12);
-    const col3 = 'LATÊNCIA(ms)'.padEnd(14);
-    const col4 = 'ÚLTIMO HEARTBEAT';
-    console.log(`  ${col1} ${col2} ${col3} ${col4}`);
-    console.log('  ' + '─'.repeat(72));
+    const col2 = 'STATUS'.padEnd(8);
+    const col3 = 'UPTIME(s)'.padEnd(12);
+    const col4 = 'LATÊNCIA(ms)'.padEnd(14);
+    const col5 = 'ÚLTIMO HEARTBEAT';
+    console.log(`  ${col1} ${col2} ${col3} ${col4} ${col5}`);
+    console.log('  ' + '─'.repeat(80));
 
     // Uma linha por probe registrado no dicionário em memória
     for (const svc of services) {
       const id      = svc.probe_id.padEnd(25);
+      const status  = (svc.status === 'DOWN' ? '🔴 DOWN' : '🟢 UP').padEnd(8);
       const uptime  = String(svc.uptime).padEnd(12);
       const latMs   = `${svc.latencia}ms`.padEnd(14);
       const hb      = new Date(svc.ultimo_heartbeat).toISOString();
-      console.log(`  ${id} ${uptime} ${latMs} ${hb}`);
+      console.log(`  ${id} ${status} ${uptime} ${latMs} ${hb}`);
     }
   }
 
@@ -154,5 +170,19 @@ setTimeout(() => {
   printAdminTable();
   setInterval(printAdminTable, ADMIN_TABLE_INTERVAL);
 }, 5000);
+
+// Detecta probes que parararam de publicar heartbeats e faz o Grafana exibir um alerta visual
+setInterval(() => {
+  const changed = checkStaleProbes();
+  for (const entry of changed) {
+    updateStatusMetric(entry.probe_id, 'DOWN');
+    console.log(`⚠️  [WATCHDOG] Probe ${entry.probe_id} está DOWN (sem heartbeat há mais de ${STALE_TIMEOUT_MS}ms)`);
+  }
+}, WATCHDOG_INTERVAL);
+
+// Salva o histórico de eventos e os estados das probes em caso de reinicialização do servidor
+setInterval(() => {
+  persistSnapshot();
+}, PERSIST_INTERVAL);
 
 module.exports = app;

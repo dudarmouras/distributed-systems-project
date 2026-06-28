@@ -25,11 +25,19 @@ const heartbeatGauge = new client.Gauge({
   registers: [register],
 });
 
+// Gauge de disponibilidade: 1 = ONLINE, 0 = DOWN, usado no Grafana para colorir linhas da tabela (alerta visual de indisponibilidade)
+const statusGauge = new client.Gauge({
+  name: 'probe_status',
+  help: 'Disponibilidade do probe: 1 = ONLINE, 0 = DOWN (sem heartbeat recente)',
+  labelNames: ['probe_id'],
+  registers: [register],
+});
+
 // ─── Update functions ───
 
 function updateMetrics(probeEntry) {
   // Extraímos exatamente as chaves exigidas no escopo da disciplina
-  const { probe_id, uptime, latencia, ultimo_heartbeat } = probeEntry;
+  const { probe_id, uptime, latencia, ultimo_heartbeat, status } = probeEntry;
   const labels = { probe_id: probe_id };
 
   if (uptime != null) {
@@ -47,11 +55,26 @@ function updateMetrics(probeEntry) {
       heartbeatGauge.set(labels, timestamp);
     }
   }
+
+  if (status != null) {
+    statusGauge.set(labels, status === 'DOWN' ? 0 : 1);
+  }
+}
+
+/**
+ * Atualiza apenas o gauge de status (chamado pelo watchdog de probes inativos, que não recebe um 
+ * payload completo, só sabe que ficou stale).
+ * @param {string} probe_id
+ * @param {'ONLINE'|'DOWN'} status
+ */
+function updateStatusMetric(probe_id, status) {
+  statusGauge.set({ probe_id }, status === 'DOWN' ? 0 : 1);
 }
 
 /**
  * @returns {Promise<string>}
  */
+
 async function getMetricsText() {
   return register.metrics();
 }
@@ -60,4 +83,4 @@ function getContentType() {
   return register.contentType;
 }
 
-module.exports = { updateMetrics, getMetricsText, getContentType };
+module.exports = { updateMetrics, updateStatusMetric, getMetricsText, getContentType };

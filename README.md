@@ -26,6 +26,18 @@ Em vez de conexões abertas por socket puro ou requisições síncronas HTTP pur
 
 ---
 
+## 🔒 Controle de Concorrência, Persistência e Disponibilidade (Entrega 3)
+
+| Mecanismo | Arquivo | O que resolve |
+|---|---|---|
+| **Mutex por probe_id** | `src/state/lock.js` | Serializa atualizações do mesmo probe, evitando "lost update" quando duas mensagens MQTT do mesmo `probe_id` chegam quase simultaneamente. |
+| **Persistência em disco** | `src/state/persistence.js` | Grava um snapshot (`data/state.json`) a cada 10s; o servidor restaura esse estado ao subir, então um restart do container não apaga o histórico de eventos. |
+| **Watchdog de disponibilidade** | `checkStaleProbes()` em `src/state/store.js` | Roda a cada 5s; marca um probe como `DOWN` se ele não publicar heartbeat por mais de `PROBE_TIMEOUT_MS` (padrão: 15.000ms). Alimenta o gauge `probe_status` no Prometheus, usado para o alerta visual no Grafana. |
+
+Esses três mecanismos rodam automaticamente junto com o servidor — não exigem nenhum comando extra para serem ativados.
+
+---
+
 ## 🛠️ Tecnologias Utilizadas
 
 | Tecnologia | Papel no Ecossistema Distribuído |
@@ -47,6 +59,9 @@ microservice-dashboard/
 ├── docs/
 │   ├── protocol.md                  # Contrato das rotas HTTP e payloads MQTT
 │   └── state-model.md               # Modelagem detalhada das estruturas em memória
+├── grafana/
+│   ├── dashboards/dashboard.json     # Definição do "Painel Central" (auto-provisionado)
+│   └── provisioning/                 # Auto-configura datasource + dashboard no boot do Grafana
 ├── mosquitto/
 │   └── mosquitto.conf               # Configurações de portas e permissões do Broker
 ├── probes/
@@ -57,17 +72,20 @@ microservice-dashboard/
 │   └── prometheus.yml               # Configuração de alvos e intervalos de scrape
 ├── src/
 │   ├── collectors/
-│   │   └── metricsCollector.js      # Tradutor do dicionário para formato do Prometheus
+│   │   └── metricsCollector.js      # Tradutor do dicionário para formato do Prometheus (inclui probe_status)
 │   ├── handlers/
 │   │   └── mqttHandler.js           # Escutador de eventos MQTT e orquestrador de fluxo
 │   ├── routes/
 │   │   └── monitoring.js            # Endpoints REST (/health, /services, /events)
 │   ├── state/
-│   │   └── store.js                 # Armazenamento em memória (Maps globais + Fila FIFO)
+│   │   ├── store.js                 # Armazenamento em memória + watchdog de disponibilidade
+│   │   ├── lock.js                  # Mutex por probe_id (controle de concorrência)
+│   │   └── persistence.js           # Snapshot em disco (data/state.json)
 │   ├── validators/
 │   │   └── metricValidator.js       # Middleware de validação sintática do JSON
 │   └── server.js                    # Inicializador do Express (Porta 3000) e Ingestor MQTT
-├── admin_client.js                  # Cliente administrador para visualização via terminal
+├── data/                            # (gerado em runtime) snapshot de persistência — ignorado pelo Git
+├── admin_client.js                  # Cliente administrador alternativo via terminal
 ├── docker-compose.yml               # Manifest de criação de contêineres da infraestrutura
 ├── package.json                     # Manifest de scripts e dependências do ecossistema
 └── run_probes.js                    # Script Maestro Interativo para controle de Probes
@@ -128,7 +146,28 @@ O script inicia os 3 probes automaticamente. Cada probe mantém **conexão persi
 - `3` — Interromper/Ressuscitar o microsserviço de Pedidos
 - `Ctrl + C` — Derrubar todos os processos filhos e sair
 
-### 4. Conectar o Cliente Administrador
+### 4. Abrindo o Dashboard Gráfico (Grafana)
+
+A interface gráfica do administrador é o **Grafana**, acessível em:
+
+```
+http://localhost:3001
+```
+
+**Login:** `admin` / `admin`
+
+A fonte de dados (Prometheus) e o dashboard ("Painel Central") já vêm **pré-configurados automaticamente** via provisionamento (`grafana/provisioning/`) — não é necessário criar nada manualmente, basta fazer login e abrir o dashboard em **Dashboards → Painel Central**.
+
+O dashboard contém:
+- **Tabela de status** com `probe_id`, status (🟢 ONLINE / 🔴 DOWN), uptime, latência e último heartbeat — clique no cabeçalho de qualquer coluna para ordenar crescente/decrescente.
+- **Gráfico de latência** ao longo do tempo, por probe.
+- **Painel de controle** com um campo numérico e botão "Aplicar Intervalo", que altera remotamente o intervalo de publicação (`N`) de todos os probes em tempo real, via MQTT.
+
+Para que a tabela atualize sozinha (sem precisar apertar F5), configure o **auto-refresh** no canto superior direito do dashboard (ex: `5s`) e clique em **Save dashboard** para isso persistir.
+
+---
+
+### 5. Conectar o Cliente Administrador (Terminal — alternativa ao Grafana)
 
 Para visualizar o estado global dos microsserviços em **tempo real** diretamente no terminal (sem depender do console do Docker), abra um novo terminal e execute:
 
