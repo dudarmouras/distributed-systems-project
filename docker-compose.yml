@@ -17,6 +17,9 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
+      - PROBE_TIMEOUT_MS=15000 # Após esse tempo sem heartbeat, o probe é marcado como DOWN
+    volumes:
+      - collector-data:/app/data # Persiste o snapshot do estado (probes + eventos) em disco
     restart: unless-stopped
     depends_on:
       - mosquitto # O Node.js agora espera o MQTT subir primeiro
@@ -28,6 +31,7 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus # Persiste o histórico de séries temporais (TSDB)
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
     restart: unless-stopped
@@ -52,3 +56,5 @@ services:
 
 volumes:
   grafana-data:
+  prometheus-data:
+  collector-data:

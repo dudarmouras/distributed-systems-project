@@ -1,5 +1,3 @@
-// mqttHandler.js — Processa a mensagem recebida do Broker MQTT
-
 const { validateIngestPayload } = require('../validators/metricValidator');
 const { upsertService, recordValidationError } = require('../state/store');
 const { updateMetrics } = require('../collectors/metricsCollector');
@@ -9,7 +7,8 @@ const { updateMetrics } = require('../collectors/metricsCollector');
  * @param {string} topic - Tópico MQTT (ex: probes/probe_pagamentos/metrics)
  * @param {Buffer} message - Payload da mensagem em Buffer
  */
-function handleMqttMessage(topic, message) {
+
+async function handleMqttMessage(topic, message) {
   try {
     const body = JSON.parse(message.toString());
 
@@ -22,8 +21,9 @@ function handleMqttMessage(topic, message) {
       return; 
     }
 
-    // 2. Atualiza a estrutura em memória
-    const entry = upsertService(body.probe_id, body);
+    // 2. Atualiza a estrutura em memória, upsertService agora é assíncrona, usa um mutex (lock.js) para
+    // garantir que duas mensagens do MESMO probe_id nunca se entrelacem.
+    const entry = await upsertService(body.probe_id, body);
 
     // 3. Atualiza as métricas para o Prometheus conseguir ler
     updateMetrics(entry);
@@ -31,7 +31,7 @@ function handleMqttMessage(topic, message) {
     console.log(`[MQTT] Dados recebidos de: ${body.probe_id} | Latência: ${body.latencia}ms`);
 
   } catch (error) {
-    console.error(`[MQTT] Erro ao fazer parse do JSON no tópico ${topic}:`, error.message);
+    console.error(`[MQTT] Erro ao processar mensagem no tópico ${topic}:`, error.message);
   }
 }
 
