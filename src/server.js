@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const mqtt = require('mqtt');
 const { getMetricsText, getContentType } = require('./collectors/metricsCollector');
 const { updateStatusMetric } = require('./collectors/metricsCollector');
@@ -13,7 +14,7 @@ const {
   STALE_TIMEOUT_MS,
 } = require('./state/store');
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const ADMIN_TABLE_INTERVAL = 10 * 1000;   // Exibe a tabela de status a cada 10 segundos
 const WATCHDOG_INTERVAL = 5 * 1000;       // Verifica probes inativos a cada 5 segundos
 const PERSIST_INTERVAL = 10 * 1000;       // Grava snapshot em disco a cada 10 segundos
@@ -44,8 +45,11 @@ app.use((req, res, next) => {
 
 // ─── Conexão MQTT ───
 
-// Conecta ao Mosquitto (usando o nome do serviço no docker-compose)
-const mqttClient = mqtt.connect('mqtt://mosquitto:1883');
+// Conecta ao Mosquitto. Default usa o nome do serviço do docker-compose;
+// pode ser sobrescrito por MQTT_BROKER_URL (ex.: mqtt://localhost:1883 ao
+// rodar o coletor fora do Docker).
+const BROKER_URL = process.env.MQTT_BROKER_URL || 'mqtt://mosquitto:1883';
+const mqttClient = mqtt.connect(BROKER_URL);
 
 mqttClient.on('connect', () => {
   console.log('MQTT: Conectado ao Broker Mosquitto');
@@ -64,6 +68,9 @@ mqttClient.on('message', (topic, message) => {
 });
 
 // ─── Routes HTTP ───
+
+// Serve a GUI estática do Administrador (dashboard/index.html em GET '/')
+app.use(express.static(path.join(__dirname, '..', 'dashboard')));
 
 // 2. Rota que recebe o comando do botão do Grafana e repassa pro MQTT
 app.post('/api/control/interval', (req, res) => {
@@ -88,18 +95,20 @@ app.get('/metrics', async (req, res) => {
   res.send(await getMetricsText());
 });
 
-// Informative root route
-app.get('/', (req, res) => {
+// Informative route (movida de '/' para liberar a raiz para a GUI estática)
+app.get('/api/info', (req, res) => {
   res.json({
     name: 'Microservice Health Dashboard — Agente Coletor',
     version: '0.1.0',
     protocolo_mensageria: 'MQTT',
     endpoints: {
-      'MQTT Subscribe': 'probes/+/metrics (Recebe snapshot de métricas dos probes) ',
-      'GET  /health':   'Status do agente',
-      'GET  /services': 'Lista todos os serviços monitorados',
-      'GET  /events':   'Últimos eventos registrados',
-      'GET  /metrics':  'Endpoint Prometheus (scrape)',
+      'GET  /':                    'GUI do Administrador (dashboard estático)',
+      'MQTT Subscribe':            'probes/+/metrics (Recebe snapshot de métricas dos probes) ',
+      'GET  /health':              'Status do agente',
+      'GET  /services':            'Lista todos os serviços monitorados',
+      'GET  /events':              'Últimos eventos registrados',
+      'POST /api/control/interval':'Altera remotamente o intervalo de coleta dos probes',
+      'GET  /metrics':             'Endpoint Prometheus (scrape)',
     },
   });
 });
@@ -116,7 +125,8 @@ app.listen(PORT, () => {
   console.log('  Microservice Health Dashboard');
   console.log(`  Agente coletor rodando na porta ${PORT}`);
   console.log('════════════════════════════════════════════');
-  console.log(`  MQTT Escutando mosquitto:1883`);
+  console.log(`  MQTT Escutando ${BROKER_URL}`);
+  console.log(`  GUI  http://localhost:${PORT}/  (Dashboard do Administrador)`);
   console.log(`  GET  http://localhost:${PORT}/health`);
   console.log(`  GET  http://localhost:${PORT}/metrics`);
   console.log('════════════════════════════════════════════');
