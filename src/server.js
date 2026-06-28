@@ -10,7 +10,17 @@ const ADMIN_TABLE_INTERVAL = 10 * 1000; // Exibe a tabela de status a cada 10 se
 
 const app = express();
 
+// Lê o corpo das requisições em JSON
 app.use(express.json());
+
+// 1. Libera o CORS para o botão do Grafana conseguir acessar a API (DEVE VIR ANTES DAS ROTAS)
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  next();
+});
 
 // Req logs (Apenas para as requisições HTTP restantes)
 app.use((req, res, next) => {
@@ -40,6 +50,20 @@ mqttClient.on('message', (topic, message) => {
 });
 
 // ─── Routes HTTP ───
+
+// 2. Rota que recebe o comando do botão do Grafana e repassa pro MQTT
+app.post('/api/control/interval', (req, res) => {
+  const { intervalo } = req.body;
+  if (!intervalo || typeof intervalo !== 'number') {
+    return res.status(400).json({ error: 'Intervalo inválido.' });
+  }
+  
+  // Dispara o comando para o barramento MQTT (tópico: probes/control)
+  mqttClient.publish('probes/control', JSON.stringify({ novo_intervalo: intervalo }));
+  console.log(`\n📡 [ADMIN] Comando remoto enviado via MQTT: Novo intervalo de ${intervalo}ms\n`);
+  
+  res.json({ success: true, message: `Intervalo de ${intervalo}ms ativado nos probes!` });
+});
 
 // Agente status and service list
 app.use('/', healthRouter);
