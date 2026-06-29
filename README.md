@@ -58,23 +58,31 @@ Esses mecanismos rodam automaticamente junto com o servidor — não exigem nenh
 
 ```text
 microservice-dashboard/
+├── __tests__/                        # Suite de testes automatizados (Jest + Supertest)
+│   ├── probes.test.js               # Testes dos simuladores de probe (publicação MQTT, payload)
+│   └── routes.test.js               # Testes das rotas HTTP (/health, /services, /events, /metrics)
 ├── docs/
 │   ├── protocol.md                  # Contrato das rotas HTTP e payloads MQTT
 │   └── state-model.md               # Modelagem detalhada das estruturas em memória
 ├── grafana/
-│   ├── dashboards/dashboard.json     # Definição do "Painel Central" (auto-provisionado)
+│   ├── dashboards/
+│   │   └── dashboard.json           # Definição do "Painel Central" (auto-provisionado)
 │   └── provisioning/                 # Auto-configura datasource + dashboard no boot do Grafana
+│       ├── dashboards/
+│       │   └── default.yaml         # Configuração de provisionamento de dashboards
+│       └── datasources/
+│           └── prometheus.yaml      # Configuração do datasource Prometheus
 ├── mosquitto/
 │   └── mosquitto.conf               # Configurações de portas e permissões do Broker
 ├── probes/
 │   ├── autenticacao.js              # Simulador do Microsserviço de Autenticação
-│   ├── pagamentos.js                # Simulador do Microsserviço de Pagamentos
-│   ├── pedidos.js                   # Simulador do Microsserviço de Pedidos
+│   ├── cache.js                     # Simulador do Microsserviço de Cache
 │   ├── estoque.js                   # Simulador do Microsserviço de Estoque
 │   ├── gateway.js                   # Simulador do Microsserviço de Gateway
 │   ├── notificacoes.js              # Simulador do Microsserviço de Notificações
-│   ├── relatorios.js                # Simulador do Microsserviço de Relatórios
-│   └── cache.js                     # Simulador do Microsserviço de Cache
+│   ├── pagamentos.js                # Simulador do Microsserviço de Pagamentos
+│   ├── pedidos.js                   # Simulador do Microsserviço de Pedidos
+│   └── relatorios.js                # Simulador do Microsserviço de Relatórios
 ├── prometheus/
 │   └── prometheus.yml               # Configuração de alvos e intervalos de scrape
 ├── src/
@@ -85,15 +93,19 @@ microservice-dashboard/
 │   ├── routes/
 │   │   └── monitoring.js            # Endpoints REST (/health, /services, /events)
 │   ├── state/
-│   │   ├── store.js                 # Armazenamento em memória + watchdog de disponibilidade
 │   │   ├── lock.js                  # Mutex por probe_id (controle de concorrência)
-│   │   └── persistence.js           # Snapshot em disco (data/state.json)
+│   │   ├── persistence.js           # Snapshot em disco (data/state.json)
+│   │   └── store.js                 # Armazenamento em memória + watchdog de disponibilidade
 │   ├── validators/
 │   │   └── metricValidator.js       # Middleware de validação sintática do JSON
 │   └── server.js                    # Inicializador do Express (Porta 3000) e Ingestor MQTT
 ├── data/                            # (gerado em runtime) snapshot de persistência — ignorado pelo Git
 ├── admin_client.js                  # Cliente administrador alternativo via terminal
 ├── docker-compose.yml               # Manifest de criação de contêineres da infraestrutura
+├── Dockerfile                       # Imagem Docker do Agente Coletor Node.js
+├── entrypoint.sh                    # Script de inicialização do container do coletor
+├── load.js                          # Script de teste de estresse (5 fases de carga e queda)
+├── package-lock.json                # Lockfile de dependências (gerado pelo npm install)
 ├── package.json                     # Manifest de scripts e dependências do ecossistema
 └── run_probes.js                    # Script Maestro Interativo para controle de Probes
 ```
@@ -377,6 +389,124 @@ Para demonstrar o alerta visual de indisponibilidade (🔴 DOWN), simplesmente e
 |---|---|---|
 | `MQTT_BROKER_URL` | `mqtt://localhost:1883` | URL do broker MQTT (usada pelos probes) |
 | `PROBE_TIMEOUT_MS` | `15000` | Tempo (ms) sem heartbeat para marcar probe como DOWN (usado pelo servidor) |
+
+---
+
+## 🧪 Testes Automatizados
+
+Os testes utilizam **Jest** com **Supertest** e cobrem os módulos de estado, validação, rotas HTTP e handlers MQTT. Toda a suite roda de forma isolada, sem precisar da infraestrutura Docker no ar.
+
+### Instalação das dependências (caso ainda não tenha feito)
+
+```bash
+npm install
+```
+
+### Executar todos os testes
+
+```bash
+npm test
+```
+
+O Jest descobre automaticamente todos os arquivos `*.test.js` dentro da pasta `__tests__/` e exibe o resultado de cada suite no terminal.
+
+### Executar em modo watch (re-executa a cada mudança de arquivo)
+
+```bash
+npm run test:watch
+```
+
+Útil durante o desenvolvimento: ao salvar qualquer arquivo de código ou de teste, o Jest re-executa apenas as suites afetadas.
+
+### Gerar relatório de cobertura de código
+
+```bash
+npm run test:coverage
+```
+
+O relatório é salvo em `coverage/` e exibido no terminal ao final da execução. A configuração de cobertura abrange todos os arquivos em `src/**/*.js` e `probes/**/*.js` (definido em `package.json` → `jest.collectCoverageFrom`).
+
+### Flags úteis do Jest
+
+```bash
+# Rodar apenas uma suite específica
+npx jest __tests__/store.test.js
+
+# Rodar testes cujo nome contenha uma palavra-chave
+npx jest --testNamePattern="validação"
+
+# Ver saída detalhada de cada it/test
+npx jest --verbose
+```
+
+> **Nota:** A flag `--forceExit` já está incluída nos scripts `npm test` e `npm run test:watch` para garantir que o processo encerre mesmo com conexões abertas (ex: cliente MQTT em testes de integração).
+
+---
+
+## 🔥 Testes de Estresse
+
+O arquivo `load.js` é o script de carga que simula cenários reais de alta concorrência e oscilação de disponibilidade dos probes. Ele **requer o servidor rodando** (via Docker Compose ou localmente).
+
+### Pré-requisito: infraestrutura no ar
+
+```bash
+docker-compose up -d --build
+# aguarde alguns segundos e confirme que o coletor está pronto:
+docker-compose logs -f collector
+```
+
+### Executar o teste de estresse
+
+```bash
+node load.js
+```
+
+Por padrão, o script aponta para `http://localhost:3000`. Para apontar para outro host:
+
+```bash
+SERVER_URL=http://192.168.1.10:3000 node load.js
+```
+
+### O que o script faz
+
+O `load.js` executa 5 fases em sequência, totalizando aproximadamente **1 minuto e 45 segundos**:
+
+| Fase | Duração | Ação | Efeito esperado |
+|------|---------|------|-----------------|
+| 🟢 1 | 20s | Intervalo dos probes → **1000ms** | Probes publicam em alta frequência; coletor recebe ~20 req/s |
+| 🔴 2 | 25s | Intervalo dos probes → **20000ms** | Probes ficam silenciosos; watchdog marca todos como **DOWN** após 15s |
+| 🟢 3 | 20s | Intervalo dos probes → **1000ms** | Probes voltam **ONLINE**; recuperação visível no Grafana |
+| 🔴 4 | 25s | Intervalo dos probes → **20000ms** | Segunda queda; confirma consistência do watchdog |
+| 🟢 5 | 15s | Intervalo dos probes → **5000ms** | Normalização; sistema volta ao estado estável |
+
+Em cada fase o script dispara **20 workers concorrentes**, cada um fazendo 3 requisições simultâneas (`GET /health`, `GET /services`, `GET /events`), perfazendo até **60 requisições paralelas por ciclo**. Ao final de cada fase o total acumulado de requests é impresso no terminal:
+
+```
+Alvo: http://localhost:3000
+
+🟢 Fase 1 — intervalo 1000ms: probes ativos com alta frequência (20s)
+   18540 requests enviadas
+
+🔴 Fase 2 — intervalo 20000ms: probes ficam silenciosos → watchdog marca DOWN (25s)
+   23175 requests enviadas
+
+🟢 Fase 3 — intervalo 1000ms: probes voltam ONLINE (20s)
+   18600 requests enviadas
+
+🔴 Fase 4 — intervalo 20000ms: segunda queda (25s)
+   23220 requests enviadas
+
+🟢 Fase 5 — intervalo 5000ms: voltando ao normal (15s)
+   8700 requests enviadas
+
+✅ Carga finalizada.
+```
+
+### O que observar durante o teste
+
+- **Terminal do coletor** (`docker-compose logs -f collector`): o contador de ingestões sobe rapidamente nas fases ímpares e para nas pares.
+- **Grafana** (`http://localhost:3001`): a tabela de status alterna entre 🟢 ONLINE e 🔴 DOWN a cada fase; o gráfico de latência mostra os picos de carga.
+- **Prometheus** (`http://localhost:9090`): a métrica `probe_status` oscila entre `1` (ONLINE) e `0` (DOWN) de acordo com as fases.
 
 ---
 
