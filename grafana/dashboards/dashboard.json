@@ -1279,6 +1279,43 @@
             "version": "13.1.0"
           }
         }
+      },
+      "panel-12": {
+        "kind": "Panel",
+        "spec": {
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [],
+              "queryOptions": {},
+              "transformations": []
+            }
+          },
+          "description": "Painel de controle para ligar e desligar cada probe individualmente. O status (ONLINE/DOWN) e atualizado automaticamente a cada 5 segundos sem recarregar a pagina.",
+          "id": 12,
+          "links": [],
+          "title": "Controle de Probes — Liga / Desliga",
+          "vizConfig": {
+            "group": "text",
+            "kind": "VizConfig",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+              },
+              "options": {
+                "code": {
+                  "language": "plaintext",
+                  "showLineNumbers": false,
+                  "showMiniMap": false
+                },
+                "content": "<div id=\"probeToggleWidget\" style=\"font-family:sans-serif;padding:4px;\">\n  <div id=\"probeGrid\" style=\"display:grid;grid-template-columns:repeat(4,1fr);gap:10px;\">\n    <div style=\"text-align:center;color:#888;padding:20px;\">Carregando probes...</div>\n  </div>\n  <div id=\"toggleFeedback\" style=\"display:none;margin-top:10px;padding:8px 12px;border-radius:6px;font-size:13px;font-weight:600;\"></div>\n</div>\n<script>\n(function(){\n  var HOST = window.location.hostname;\n  var API  = 'http://' + HOST + ':3000';\n\n  var PROBES = [\n    'probe_pagamentos','probe_autenticacao','probe_pedidos','probe_estoque',\n    'probe_gateway','probe_notificacoes','probe_relatorios','probe_cache'\n  ];\n\n  var LABELS = {\n    probe_pagamentos:   'Pagamentos',\n    probe_autenticacao: 'Autenticacao',\n    probe_pedidos:      'Pedidos',\n    probe_estoque:      'Estoque',\n    probe_gateway:      'Gateway',\n    probe_notificacoes: 'Notificacoes',\n    probe_relatorios:   'Relatorios',\n    probe_cache:        'Cache'\n  };\n\n  // status em cache: probe_id -> 'UP'|'DOWN'|'unknown'\n  var statusCache = {};\n  PROBES.forEach(function(p){ statusCache[p] = 'unknown'; });\n\n  function showFeedback(msg, ok) {\n    var el = document.getElementById('toggleFeedback');\n    el.style.display = 'block';\n    el.style.background = ok ? 'rgba(87,166,87,0.18)' : 'rgba(214,73,73,0.18)';\n    el.style.color       = ok ? '#7CD992' : '#FF8A8A';\n    el.style.border      = '1px solid ' + (ok ? '#3C8C4A' : '#A33A3A');\n    el.textContent = (ok ? '✔ ' : '⚠ ') + msg;\n    setTimeout(function(){ el.style.display = 'none'; }, 4000);\n  }\n\n  function renderCards(services) {\n    // Build status map from /services\n    var svcMap = {};\n    (services || []).forEach(function(s){ svcMap[s.probe_id] = s.status; });\n\n    var grid = document.getElementById('probeGrid');\n    grid.innerHTML = '';\n\n    PROBES.forEach(function(probe_id) {\n      var rawStatus = svcMap[probe_id] || 'DOWN';\n      var isUp = rawStatus !== 'DOWN';\n      statusCache[probe_id] = isUp ? 'UP' : 'DOWN';\n\n      var card = document.createElement('div');\n      card.style.cssText = 'background:' + (isUp ? 'rgba(87,166,87,0.12)' : 'rgba(214,73,73,0.10)') + ';border:1px solid ' + (isUp ? '#3C8C4A' : '#7A2A2A') + ';border-radius:10px;padding:12px 8px;text-align:center;';\n\n      var dot = document.createElement('div');\n      dot.style.cssText = 'width:12px;height:12px;border-radius:50%;background:' + (isUp ? '#73BF69' : '#F2495C') + ';margin:0 auto 6px auto;';\n\n      var label = document.createElement('div');\n      label.style.cssText = 'font-size:12px;font-weight:600;color:#DDD;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';\n      label.textContent = LABELS[probe_id] || probe_id;\n\n      var statusBadge = document.createElement('div');\n      statusBadge.style.cssText = 'font-size:10px;color:' + (isUp ? '#73BF69' : '#F2495C') + ';margin-bottom:8px;font-weight:700;letter-spacing:1px;';\n      statusBadge.textContent = isUp ? 'ONLINE' : 'DOWN';\n\n      var btn = document.createElement('button');\n      btn.textContent = isUp ? 'Parar' : 'Iniciar';\n      btn.style.cssText = 'width:100%;padding:6px 0;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;color:#fff;background:' + (isUp ? 'linear-gradient(135deg,#E05C5C,#C23B3B)' : 'linear-gradient(135deg,#5794F2,#3274D9)') + ';transition:.15s;';\n      btn.onmouseover = function(){ btn.style.filter = 'brightness(1.15)'; };\n      btn.onmouseout  = function(){ btn.style.filter = 'brightness(1)'; };\n      btn.onclick = function() {\n        var action = statusCache[probe_id] === 'UP' ? 'stop' : 'start';\n        btn.disabled = true;\n        btn.textContent = action === 'stop' ? 'Parando...' : 'Iniciando...';\n        fetch(API + '/api/control/probe', {\n          method: 'POST',\n          headers: {'Content-Type':'application/json'},\n          body: JSON.stringify({ probe_id: probe_id, action: action })\n        })\n        .then(function(res){ return res.json().then(function(data){ return {ok:res.ok,data:data}; }); })\n        .then(function(r){\n          if (r.ok) {\n            showFeedback(r.data.message || 'Comando enviado.', true);\n          } else {\n            showFeedback(r.data.error || 'Erro ao enviar comando.', false);\n            btn.disabled = false;\n            btn.textContent = action === 'stop' ? 'Parar' : 'Iniciar';\n          }\n        })\n        .catch(function(){\n          showFeedback('Falha de comunicacao com o servidor (:3000).', false);\n          btn.disabled = false;\n          btn.textContent = action === 'stop' ? 'Parar' : 'Iniciar';\n        });\n      };\n\n      card.appendChild(dot);\n      card.appendChild(label);\n      card.appendChild(statusBadge);\n      card.appendChild(btn);\n      grid.appendChild(card);\n    });\n  }\n\n  function refresh() {\n    fetch(API + '/services')\n      .then(function(r){ return r.json(); })\n      .then(function(d){ renderCards(d.services || []); })\n      .catch(function(){ renderCards([]); });\n  }\n\n  refresh();\n  setInterval(refresh, 5000);\n})();\n</script>",
+                "mode": "html"
+              }
+            },
+            "version": "13.1.0"
+          }
+        }
       }
     },
     "layout": {
@@ -1426,6 +1463,19 @@
               "width": 12,
               "x": 12,
               "y": 44
+            }
+          },
+          {
+            "kind": "GridLayoutItem",
+            "spec": {
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-12"
+              },
+              "height": 10,
+              "width": 24,
+              "x": 0,
+              "y": 50
             }
           }
         ]

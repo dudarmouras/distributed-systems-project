@@ -55,6 +55,13 @@ client.on("message", (topic, message) => {
   if (topic === CONTROL_TOPIC) {
     try {
       const data = JSON.parse(message.toString());
+      // Comando de parada direcionado a este probe
+      if (data.action === "stop" && data.target === PROBE_ID) {
+        console.log(`[${PROBE_ID}] Comando de parada recebido. Encerrando...`);
+        if (intervalId) clearInterval(intervalId);
+        client.end(true, () => process.exit(0));
+        return;
+      }
       if (data.novo_intervalo && typeof data.novo_intervalo === "number") {
         intervalMs = data.novo_intervalo;
         console.log(`[${PROBE_ID}] Intervalo de coleta atualizado para ${intervalMs}ms`);
