@@ -82,7 +82,7 @@
           "description": "",
           "id": 1,
           "links": [],
-          "title": "Dashboard",
+          "title": "Gráfico de latência",
           "vizConfig": {
             "group": "timeseries",
             "kind": "VizConfig",
@@ -180,7 +180,7 @@
           "description": "Envia o novo intervalo N de coleta para todos os probes via MQTT (topico probes/control). Erros de validacao ou de comunicacao com o servidor sao exibidos inline, sem usar alert() do navegador.",
           "id": 2,
           "links": [],
-          "title": "Aumentar intervalo",
+          "title": "Alterar intervalo",
           "vizConfig": {
             "group": "text",
             "kind": "VizConfig",
@@ -366,7 +366,7 @@
           "description": "",
           "id": 3,
           "links": [],
-          "title": "Table",
+          "title": "Informações gerais",
           "vizConfig": {
             "group": "table",
             "kind": "VizConfig",
