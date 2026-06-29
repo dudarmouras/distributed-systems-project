@@ -39,7 +39,12 @@ function spawnProbe(probe_id) {
 
   const probePath = path.join(__dirname, '..', 'probes', script);
   const child = spawn('node', [probePath], {
-    env: { ...process.env },
+    env: {
+      ...process.env,
+      // Garante que o probe filho conecte ao broker pelo nome do serviço Docker,
+      // não via localhost (que não resolve dentro do container)
+      MQTT_BROKER_URL: process.env.MQTT_BROKER_URL || 'mqtt://mosquitto:1883',
+    },
     stdio: 'inherit',
   });
 

@@ -427,7 +427,7 @@
                               "1": {
                                 "color": "green",
                                 "index": 1,
-                                "text": "🟢UP"
+                                "text": "🟢 ONLINE"
                               }
                             },
                             "type": "value"
