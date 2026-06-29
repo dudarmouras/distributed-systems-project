@@ -5,7 +5,10 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "test": "jest --forceExit",
+    "test:watch": "jest --watch --forceExit",
+    "test:coverage": "jest --coverage --forceExit"
   },
   "dependencies": {
     "cors": "^2.8.6",
@@ -14,6 +17,19 @@
     "prom-client": "^15.1.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "jest": "^29.0.0",
+    "nodemon": "^3.0.2",
+    "supertest": "^7.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": ["**/__tests__/**/*.test.js"],
+    "clearMocks": true,
+    "resetModules": true,
+    "coverageDirectory": "coverage",
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "probes/**/*.js"
+    ]
   }
 }

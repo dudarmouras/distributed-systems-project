@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # ── Broker MQTT (Mosquitto) ────────────────────────────────────────────────
   mosquitto:
@@ -18,6 +16,7 @@ services:
     environment:
       - NODE_ENV=production
       - PROBE_TIMEOUT_MS=15000 # Após esse tempo sem heartbeat, o probe é marcado como DOWN
+      - MQTT_BROKER_URL=mqtt://mosquitto:1883
     volumes:
       - collector-data:/app/data # Persiste o snapshot do estado (probes + eventos) em disco
     restart: unless-stopped
