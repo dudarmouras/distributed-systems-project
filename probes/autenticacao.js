@@ -3,13 +3,13 @@ const mqtt = require("mqtt");
 const PROBE_ID = "probe_autenticacao";
 const METRICS_TOPIC = `probes/${PROBE_ID}/metrics`;
 const CONTROL_TOPIC = `probes/control`;
-const BROKER_URL = "mqtt://localhost:1883";
+const BROKER_URL = process.env.MQTT_BROKER_URL || "mqtt://localhost:1883";
 
 let uptimeSeconds = 0;
 let intervalMs = 5000; // Começa com 5 segundos
 let intervalId = null;
 
-console.log(`🚀 Iniciando Microsserviço: ${PROBE_ID}`);
+console.log(`🚀 Iniciando Microsserviço: ${PROBE_ID} (broker: ${BROKER_URL})`);
 const client = mqtt.connect(BROKER_URL);
 
 // Função que gerencia o envio contínuo com base no intervalo atual
@@ -54,6 +54,13 @@ client.on("message", (topic, message) => {
   if (topic === CONTROL_TOPIC) {
     try {
       const data = JSON.parse(message.toString());
+      // Comando de parada direcionado a este probe
+      if (data.action === "stop" && data.target === PROBE_ID) {
+        console.log(`[${PROBE_ID}] Comando de parada recebido. Encerrando...`);
+        if (intervalId) clearInterval(intervalId);
+        client.end(true, () => process.exit(0));
+        return;
+      }
       if (data.novo_intervalo && typeof data.novo_intervalo === "number") {
         intervalMs = data.novo_intervalo;
         console.log(

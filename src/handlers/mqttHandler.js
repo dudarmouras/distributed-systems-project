@@ -1,6 +1,6 @@
 const { validateIngestPayload } = require('../validators/metricValidator');
 const { upsertService, recordValidationError } = require('../state/store');
-const { updateMetrics } = require('../collectors/metricsCollector');
+const { updateMetrics, recordValidationErrorMetric } = require('../collectors/metricsCollector');
 
 /**
  * Processa a mensagem recebida do Broker MQTT
@@ -17,6 +17,7 @@ async function handleMqttMessage(topic, message) {
 
     if (!valid) {
       recordValidationError();
+      recordValidationErrorMetric();
       console.error(`[MQTT] Erro de validação no tópico ${topic}:`, errors);
       return; 
     }
@@ -31,6 +32,8 @@ async function handleMqttMessage(topic, message) {
     console.log(`[MQTT] Dados recebidos de: ${body.probe_id} | Latência: ${body.latencia}ms`);
 
   } catch (error) {
+    recordValidationError();
+    recordValidationErrorMetric();
     console.error(`[MQTT] Erro ao processar mensagem no tópico ${topic}:`, error.message);
   }
 }

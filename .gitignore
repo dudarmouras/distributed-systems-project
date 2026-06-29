@@ -1,1 +1,11 @@
 node_modules
+
+# Snapshot de persistência gerado em runtime
+data/
+
+# Logs e PIDs dos probes iniciados por run_all_probes.sh
+logs/
+.probe_pids
+
+# Override local do docker-compose (ajustes de porta específicos da máquina)
+docker-compose.override.yml

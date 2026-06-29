@@ -33,8 +33,10 @@ Em vez de conexões abertas por socket puro ou requisições síncronas HTTP pur
 | **Mutex por probe_id** | `src/state/lock.js` | Serializa atualizações do mesmo probe, evitando "lost update" quando duas mensagens MQTT do mesmo `probe_id` chegam quase simultaneamente. |
 | **Persistência em disco** | `src/state/persistence.js` | Grava um snapshot (`data/state.json`) a cada 10s; o servidor restaura esse estado ao subir, então um restart do container não apaga o histórico de eventos. |
 | **Watchdog de disponibilidade** | `checkStaleProbes()` em `src/state/store.js` | Roda a cada 5s; marca um probe como `DOWN` se ele não publicar heartbeat por mais de `PROBE_TIMEOUT_MS` (padrão: 15.000ms). Alimenta o gauge `probe_status` no Prometheus, usado para o alerta visual no Grafana. |
+| **Erros de validação visíveis na interface** | `probe_validation_errors_total` em `src/collectors/metricsCollector.js` | Toda mensagem MQTT rejeitada (schema inválido ou JSON malformado) incrementa esse contador, exibido no painel **"Erros de Validação"** do Grafana — antes só aparecia no log do servidor. |
+| **Erro de comunicação com o Agente Coletor** | métrica nativa `up{job="microservice-dashboard"}` do Prometheus | Cai para `0` automaticamente se o scrape em `/metrics` falhar (ex: container do coletor caiu). Exibido no painel **"Status do Agente Coletor (Comunicação)"**. |
 
-Esses três mecanismos rodam automaticamente junto com o servidor — não exigem nenhum comando extra para serem ativados.
+Esses mecanismos rodam automaticamente junto com o servidor — não exigem nenhum comando extra para serem ativados.
 
 ---
 
@@ -67,12 +69,17 @@ microservice-dashboard/
 ├── probes/
 │   ├── autenticacao.js              # Simulador do Microsserviço de Autenticação
 │   ├── pagamentos.js                # Simulador do Microsserviço de Pagamentos
-│   └── pedidos.js                   # Simulador do Microsserviço de Pedidos
+│   ├── pedidos.js                   # Simulador do Microsserviço de Pedidos
+│   ├── estoque.js                   # Simulador do Microsserviço de Estoque
+│   ├── gateway.js                   # Simulador do Microsserviço de Gateway
+│   ├── notificacoes.js              # Simulador do Microsserviço de Notificações
+│   ├── relatorios.js                # Simulador do Microsserviço de Relatórios
+│   └── cache.js                     # Simulador do Microsserviço de Cache
 ├── prometheus/
 │   └── prometheus.yml               # Configuração de alvos e intervalos de scrape
 ├── src/
 │   ├── collectors/
-│   │   └── metricsCollector.js      # Tradutor do dicionário para formato do Prometheus (inclui probe_status)
+│   │   └── metricsCollector.js      # Tradutor do dicionário para formato do Prometheus (uptime, latência, heartbeat, probe_status e probe_validation_errors_total)
 │   ├── handlers/
 │   │   └── mqttHandler.js           # Escutador de eventos MQTT e orquestrador de fluxo
 │   ├── routes/
@@ -137,16 +144,40 @@ Para simular múltiplos microsserviços publicando heartbeats simultaneamente, e
 node run_probes.js
 ```
 
-O script inicia os 3 probes automaticamente. Cada probe mantém **conexão persistente** com o broker e publica a cada 5 segundos sem reconectar.
+O script inicia **todos os 8 probes automaticamente** (`pagamentos`, `autenticacao`, `pedidos`, `estoque`, `gateway`, `notificacoes`, `relatorios`, `cache`). Cada probe mantém **conexão persistente** com o broker e publica a cada 5 segundos sem reconectar.
 
-**Controles do teclado durante a execução:**
+**Controles do teclado durante a execução (modo interativo, em foreground):**
 
 - `1` — Interromper/Ressuscitar o microsserviço de Pagamentos
 - `2` — Interromper/Ressuscitar o microsserviço de Autenticação
 - `3` — Interromper/Ressuscitar o microsserviço de Pedidos
+- `4` a `8` — Liga/desliga os probes adicionais (`estoque`, `gateway`, `notificacoes`, `relatorios`, `cache`)
 - `Ctrl + C` — Derrubar todos os processos filhos e sair
 
-### 4. Abrindo o Dashboard Gráfico (Grafana)
+#### Rodando os probes em background
+
+Para deixar os probes publicando heartbeats sem precisar manter um terminal aberto (por exemplo, em um servidor remoto), rode o maestro em background com `nohup`:
+
+```bash
+nohup node run_probes.js > probes.log 2>&1 &
+```
+
+- Os controles de teclado (1–8) ficam desativados nesse modo (não há terminal interativo), mas os probes continuam publicando normalmente — o script detecta automaticamente que não está em um TTY e ignora a leitura de teclado em vez de travar.
+- Acompanhe a saída com `tail -f probes.log`.
+- Para encerrar todos os probes rodando em background, descubra o PID do processo pai e finalize-o:
+
+```bash
+pgrep -f "node run_probes.js"
+kill <PID>
+```
+
+Cada probe individual também pode ser executado isoladamente em background, se você quiser simular apenas um microsserviço específico:
+
+```bash
+nohup node probes/pagamentos.js > pagamentos.log 2>&1 &
+```
+
+### 4. Abrindo o Dashboard Gráfico (Interface do Administrador — Grafana)
 
 A interface gráfica do administrador é o **Grafana**, acessível em:
 
@@ -159,17 +190,21 @@ http://localhost:3001
 A fonte de dados (Prometheus) e o dashboard ("Painel Central") já vêm **pré-configurados automaticamente** via provisionamento (`grafana/provisioning/`) — não é necessário criar nada manualmente, basta fazer login e abrir o dashboard em **Dashboards → Painel Central**.
 
 O dashboard contém:
-- **Tabela de status** com `probe_id`, status (🟢 ONLINE / 🔴 DOWN), uptime, latência e último heartbeat — clique no cabeçalho de qualquer coluna para ordenar crescente/decrescente.
-- **Gráfico de latência** ao longo do tempo, por probe.
-- **Painel de controle** com um campo numérico e botão "Aplicar Intervalo", que altera remotamente o intervalo de publicação (`N`) de todos os probes em tempo real, via MQTT.
+- **Tabela de status** com `probe_id`, status (🟢 ONLINE / 🔴 DOWN), uptime, latência e último heartbeat — clique no cabeçalho de qualquer coluna para ordenar crescente/decrescente (filtro visual exigido pela disciplina).
+- **Gráfico e bar gauge de latência** por probe, com cores por faixa (verde/amarelo/vermelho).
+- **Comparativo de uptime** e **latência máxima geral** ao longo do tempo.
+- **Painel "Status por Probe"** com alerta visual grande (🔴/🟢) por microsserviço.
+- **Painel de controle "Aumentar intervalo"**: campo numérico + botão "Aplicar Intervalo", que altera remotamente o intervalo de publicação (`N`) de todos os probes em tempo real, via MQTT. Mensagens de sucesso ou erro (intervalo inválido, falha de comunicação com o servidor) aparecem **dentro do próprio painel**, sem usar pop-ups do navegador.
+- **Painel "Status do Agente Coletor (Comunicação)"**: usa a métrica nativa `up` do Prometheus para indicar, em tempo real, se o servidor central está alcançável — fica vermelho automaticamente se o coletor cair ou o scrape falhar.
+- **Painel "Erros de Validação (Total)"**: mostra quantas mensagens MQTT foram rejeitadas por schema inválido. Antes esse erro só existia no log do servidor; agora é visível na interface.
 
-Para que a tabela atualize sozinha (sem precisar apertar F5), configure o **auto-refresh** no canto superior direito do dashboard (ex: `5s`) e clique em **Save dashboard** para isso persistir.
+**Atualização automática:** o dashboard já vem com `autoRefresh: "5s"` definido no próprio JSON provisionado — a tabela e os painéis se atualizam sozinhos a cada 5 segundos assim que a página é aberta, sem nenhuma ação manual do administrador.
 
 ---
 
-### 5. Conectar o Cliente Administrador (Terminal — alternativa ao Grafana)
+### 5. Cliente de Debug via Terminal (uso interno — não é a interface do usuário)
 
-Para visualizar o estado global dos microsserviços em **tempo real** diretamente no terminal (sem depender do console do Docker), abra um novo terminal e execute:
+`admin_client.js` é um utilitário de terminal usado durante o desenvolvimento para inspecionar rapidamente `/health` e `/services` sem abrir o navegador. **Ele não substitui o Grafana como interface gráfica** — é só uma ferramenta auxiliar de depuração. Para usá-lo:
 
 ```bash
 node admin_client.js
@@ -223,6 +258,7 @@ REFRESH=10 node admin_client.js
 | `http://localhost:3000/services` | GET | Dump completo em formato JSON do dicionário mantido em memória RAM. |
 | `http://localhost:3000/events` | GET | Histórico temporal circular contendo os últimos 100 eventos relevantes do sistema. |
 | `http://localhost:3000/metrics` | GET | Endpoint bruto OpenMetrics formatado para raspagem do Prometheus Server. |
+| `http://localhost:3000/api/control/interval` | POST | Altera remotamente o intervalo `N` de publicação dos probes (propagado via MQTT, tópico `probes/control`). Corpo: `{ "intervalo": <inteiro em ms, entre 1000 e 300000> }`. Usado pelo painel "Aumentar intervalo" do Grafana. |
 | `http://localhost:9090` | HTTP Web | Console nativo de expressões do Prometheus Server. |
 | `http://localhost:3001` | HTTP Web | Interface do Grafana para visualização de Dashboards (Credenciais: `admin/admin`). |
 
@@ -240,6 +276,17 @@ curl http://localhost:3000/events
 
 # Ver os últimos 5 eventos
 curl "http://localhost:3000/events?n=5"
+
+# Alterar remotamente o intervalo de coleta dos probes para 10s
+curl -X POST -H "Content-Type: application/json" \
+     -d '{"intervalo":10000}' \
+     http://localhost:3000/api/control/interval
+
+# Exemplo de rejeição (intervalo abaixo do mínimo permitido)
+curl -X POST -H "Content-Type: application/json" \
+     -d '{"intervalo":50}' \
+     http://localhost:3000/api/control/interval
+# -> 400 {"error":"O intervalo mínimo permitido é 1000ms, para não sobrecarregar o broker."}
 ```
 
 ---
@@ -251,6 +298,85 @@ O arquivo `src/state/store.js` isola e gerencia o estado volátil através de co
 - **Dicionário Global (`Map`):** Estrutura indexada por strings únicas (`probe_id`), garantindo inserções e atualizações em complexidade algorítmica constante O(1).
 - **Fila de Eventos Circular (`Array`):** Armazena estritamente até 100 logs temporais operando em modelo FIFO (First-In, First-Out).
 - **Contadores Globais (`Object`):** Computadores numéricos primitivos para auditoria interna de pacotes trafegados e descartes por falhas de esquema JSON.
+
+---
+
+## 🌐 Rodando Múltiplos Probes em Máquinas Diferentes (Cenário Distribuído)
+
+O sistema suporta probes rodando em **máquinas distintas** publicando heartbeats para o mesmo broker MQTT centralizado. Esse é o cenário de uso real: cada microsserviço monitora sua própria máquina e envia métricas para o servidor central.
+
+### Topologia
+
+```text
+[Máquina A — Servidor Central]          [Máquina B — Probe remoto]
+  docker-compose up -d                     MQTT_BROKER_URL=mqtt://<IP_A>:1883
+  (mosquitto, collector, prometheus,       node probes/pagamentos.js
+   grafana sobem todos aqui)
+                                         [Máquina C — Probe remoto]
+                                           MQTT_BROKER_URL=mqtt://<IP_A>:1883
+                                           node probes/autenticacao.js
+```
+
+### Passo a Passo
+
+**1. Na máquina que vai rodar o servidor central (Máquina A):**
+
+```bash
+# Clone o repositório e instale as dependências
+git clone <url-do-repo>
+cd distributed-systems-project
+npm install
+
+# Suba toda a infraestrutura
+docker-compose up -d --build
+
+# Descubra o IP local da máquina (ex: 192.168.1.10)
+ip addr show   # Linux
+ipconfig       # Windows
+```
+
+Certifique-se de que a porta **1883** (MQTT) e a porta **3000** (API) estão abertas no firewall:
+
+```bash
+# Linux (ufw)
+sudo ufw allow 1883/tcp
+sudo ufw allow 3000/tcp
+```
+
+**2. Nas máquinas que vão rodar probes remotos (Máquina B, C, ...):**
+
+```bash
+# Clone o repositório (só precisa do diretório probes/ e do package.json)
+git clone <url-do-repo>
+cd distributed-systems-project
+npm install
+
+# Substitua 192.168.1.10 pelo IP real da Máquina A
+export MQTT_BROKER_URL=mqtt://192.168.1.10:1883
+
+# Rode um probe específico
+node probes/pagamentos.js
+
+# Ou rode todos em background
+MQTT_BROKER_URL=mqtt://192.168.1.10:1883 nohup node run_probes.js > probes.log 2>&1 &
+```
+
+> **Nota:** Todos os 8 probes já suportam a variável de ambiente `MQTT_BROKER_URL`. Se ela não for definida, o valor padrão é `mqtt://localhost:1883` (modo local).
+
+**3. Acompanhe no Grafana:**
+
+Acesse `http://<IP_A>:3001` de qualquer máquina na rede. O dashboard atualiza automaticamente a cada 5 segundos e mostra os probes de todas as máquinas na mesma tabela.
+
+### Simulando queda de um microsserviço remoto
+
+Para demonstrar o alerta visual de indisponibilidade (🔴 DOWN), simplesmente encerre um processo de probe em qualquer máquina remota. Após `PROBE_TIMEOUT_MS` (padrão: 15 segundos), o watchdog marca o probe como DOWN e o Grafana exibe o alerta automaticamente.
+
+### Variáveis de ambiente disponíveis
+
+| Variável | Padrão | Descrição |
+|---|---|---|
+| `MQTT_BROKER_URL` | `mqtt://localhost:1883` | URL do broker MQTT (usada pelos probes) |
+| `PROBE_TIMEOUT_MS` | `15000` | Tempo (ms) sem heartbeat para marcar probe como DOWN (usado pelo servidor) |
 
 ---
 
