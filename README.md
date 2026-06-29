@@ -301,6 +301,85 @@ O arquivo `src/state/store.js` isola e gerencia o estado volátil através de co
 
 ---
 
+## 🌐 Rodando Múltiplos Probes em Máquinas Diferentes (Cenário Distribuído)
+
+O sistema suporta probes rodando em **máquinas distintas** publicando heartbeats para o mesmo broker MQTT centralizado. Esse é o cenário de uso real: cada microsserviço monitora sua própria máquina e envia métricas para o servidor central.
+
+### Topologia
+
+```text
+[Máquina A — Servidor Central]          [Máquina B — Probe remoto]
+  docker-compose up -d                     MQTT_BROKER_URL=mqtt://<IP_A>:1883
+  (mosquitto, collector, prometheus,       node probes/pagamentos.js
+   grafana sobem todos aqui)
+                                         [Máquina C — Probe remoto]
+                                           MQTT_BROKER_URL=mqtt://<IP_A>:1883
+                                           node probes/autenticacao.js
+```
+
+### Passo a Passo
+
+**1. Na máquina que vai rodar o servidor central (Máquina A):**
+
+```bash
+# Clone o repositório e instale as dependências
+git clone <url-do-repo>
+cd distributed-systems-project
+npm install
+
+# Suba toda a infraestrutura
+docker-compose up -d --build
+
+# Descubra o IP local da máquina (ex: 192.168.1.10)
+ip addr show   # Linux
+ipconfig       # Windows
+```
+
+Certifique-se de que a porta **1883** (MQTT) e a porta **3000** (API) estão abertas no firewall:
+
+```bash
+# Linux (ufw)
+sudo ufw allow 1883/tcp
+sudo ufw allow 3000/tcp
+```
+
+**2. Nas máquinas que vão rodar probes remotos (Máquina B, C, ...):**
+
+```bash
+# Clone o repositório (só precisa do diretório probes/ e do package.json)
+git clone <url-do-repo>
+cd distributed-systems-project
+npm install
+
+# Substitua 192.168.1.10 pelo IP real da Máquina A
+export MQTT_BROKER_URL=mqtt://192.168.1.10:1883
+
+# Rode um probe específico
+node probes/pagamentos.js
+
+# Ou rode todos em background
+MQTT_BROKER_URL=mqtt://192.168.1.10:1883 nohup node run_probes.js > probes.log 2>&1 &
+```
+
+> **Nota:** Todos os 8 probes já suportam a variável de ambiente `MQTT_BROKER_URL`. Se ela não for definida, o valor padrão é `mqtt://localhost:1883` (modo local).
+
+**3. Acompanhe no Grafana:**
+
+Acesse `http://<IP_A>:3001` de qualquer máquina na rede. O dashboard atualiza automaticamente a cada 5 segundos e mostra os probes de todas as máquinas na mesma tabela.
+
+### Simulando queda de um microsserviço remoto
+
+Para demonstrar o alerta visual de indisponibilidade (🔴 DOWN), simplesmente encerre um processo de probe em qualquer máquina remota. Após `PROBE_TIMEOUT_MS` (padrão: 15 segundos), o watchdog marca o probe como DOWN e o Grafana exibe o alerta automaticamente.
+
+### Variáveis de ambiente disponíveis
+
+| Variável | Padrão | Descrição |
+|---|---|---|
+| `MQTT_BROKER_URL` | `mqtt://localhost:1883` | URL do broker MQTT (usada pelos probes) |
+| `PROBE_TIMEOUT_MS` | `15000` | Tempo (ms) sem heartbeat para marcar probe como DOWN (usado pelo servidor) |
+
+---
+
 ## 👥 Equipe e Desenvolvimento
 
 **Eduarda Rodrigues de Moura Santana**

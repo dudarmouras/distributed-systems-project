@@ -3,13 +3,13 @@ const mqtt = require("mqtt");
 const PROBE_ID = "probe_pagamentos";
 const METRICS_TOPIC = `probes/${PROBE_ID}/metrics`;
 const CONTROL_TOPIC = `probes/control`;
-const BROKER_URL = "mqtt://localhost:1883";
+const BROKER_URL = process.env.MQTT_BROKER_URL || "mqtt://localhost:1883";
 
 let uptimeSeconds = 0;
 let intervalMs = 5000;
 let intervalId = null;
 
-console.log(`🚀 Iniciando Microsserviço: ${PROBE_ID}`);
+console.log(`🚀 Iniciando Microsserviço: ${PROBE_ID} (broker: ${BROKER_URL})`);
 const client = mqtt.connect(BROKER_URL);
 
 function startHeartbeat() {
