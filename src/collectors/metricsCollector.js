@@ -33,6 +33,15 @@ const statusGauge = new client.Gauge({
   registers: [register],
 });
 
+// Contador de payloads MQTT rejeitados pela validação (ver metricValidator.js). Sem isso, falhas de
+// validação só existiam nos logs do console do servidor — esse contador é o que permite exibi-las
+// na interface gráfica (painel "Erros de Validação" no Grafana).
+const validationErrorsCounter = new client.Counter({
+  name: 'probe_validation_errors_total',
+  help: 'Total de mensagens MQTT recebidas que falharam na validação de esquema (probe_id/uptime/latencia/ultimo_heartbeat)',
+  registers: [register],
+});
+
 // ─── Update functions ───
 
 function updateMetrics(probeEntry) {
@@ -72,6 +81,14 @@ function updateStatusMetric(probe_id, status) {
 }
 
 /**
+ * Incrementa o contador de erros de validação. Chamado pelo mqttHandler sempre que um
+ * payload MQTT chega malformado/inválido — torna o erro visível no Grafana em tempo real.
+ */
+function recordValidationErrorMetric() {
+  validationErrorsCounter.inc();
+}
+
+/**
  * @returns {Promise<string>}
  */
 
@@ -83,4 +100,4 @@ function getContentType() {
   return register.contentType;
 }
 
-module.exports = { updateMetrics, updateStatusMetric, getMetricsText, getContentType };
+module.exports = { updateMetrics, updateStatusMetric, recordValidationErrorMetric, getMetricsText, getContentType };

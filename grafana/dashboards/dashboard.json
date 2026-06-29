@@ -177,7 +177,7 @@
               "transformations": []
             }
           },
-          "description": "",
+          "description": "Envia o novo intervalo N de coleta para todos os probes via MQTT (topico probes/control). Erros de validacao ou de comunicacao com o servidor sao exibidos inline, sem usar alert() do navegador.",
           "id": 2,
           "links": [],
           "title": "Aumentar intervalo",
@@ -195,7 +195,7 @@
                   "showLineNumbers": false,
                   "showMiniMap": false
                 },
-                "content": "<div style=\"\n    display:flex;\n    align-items:center;\n    gap:12px;\n    margin-top:15px;\n\">\n\n    <input\n        type=\"number\"\n        id=\"probeInterval\"\n        value=\"5000\"\n        step=\"1000\"\n        min=\"1000\"\n        style=\"\n            width:120px;\n            padding:10px;\n            border-radius:8px;\n            border:1px solid #555;\n            background:#2B2B2B;\n            color:white;\n            font-size:15px;\n        \"\n    >\n\n    <span style=\"color:#ccc;\">ms</span>\n\n    <button\n        onclick=\"\n        const val=document.getElementById('probeInterval').value;\n        fetch('http://localhost:3000/api/control/interval',{\n            method:'POST',\n            headers:{'Content-Type':'application/json'},\n            body:JSON.stringify({intervalo:parseInt(val)})\n        })\n        .then(res=>res.json())\n        .then(data=>alert('✔ '+data.message))\n        .catch(()=>alert('❌ Erro na comunicação com o servidor.'));\n        \"\n        style=\"\n            padding:11px 22px;\n            border:none;\n            border-radius:8px;\n            background:linear-gradient(135deg,#5794F2,#3274D9);\n            color:white;\n            font-weight:bold;\n            font-size:14px;\n            cursor:pointer;\n            transition:.2s;\n            box-shadow:0 4px 10px rgba(87,148,242,.35);\n        \"\n        onmouseover=\"this.style.filter='brightness(1.1)';this.style.transform='translateY(-2px)'\"\n        onmouseout=\"this.style.filter='brightness(1)';this.style.transform='translateY(0)'\"\n    >\n        Aplicar Intervalo\n    </button>\n\n</div>",
+                "content": "<div id=\"intervalControlWidget\" style=\"display:flex;flex-direction:column;gap:10px;margin-top:15px;font-family:sans-serif;\">\n  <div style=\"display:flex;align-items:center;gap:12px;\">\n    <input type=\"number\" id=\"probeInterval\" value=\"5000\" step=\"1000\" min=\"1000\" style=\"width:120px;padding:10px;border-radius:8px;border:1px solid #555;background:#2B2B2B;color:white;font-size:15px;\">\n    <span style=\"color:#ccc;\">ms</span>\n    <button id=\"applyIntervalBtn\" style=\"padding:11px 22px;border:none;border-radius:8px;background:linear-gradient(135deg,#5794F2,#3274D9);color:white;font-weight:bold;font-size:14px;cursor:pointer;transition:.2s;box-shadow:0 4px 10px rgba(87,148,242,.35);\">Aplicar Intervalo</button>\n  </div>\n  <div id=\"intervalFeedback\" style=\"display:none;padding:9px 14px;border-radius:6px;font-size:13px;font-weight:600;\"></div>\n</div>\n<script>\n(function(){\n  var btn=document.getElementById('applyIntervalBtn');\n  var input=document.getElementById('probeInterval');\n  var feedback=document.getElementById('intervalFeedback');\n  function showFeedback(msg, ok){\n    feedback.style.display='block';\n    feedback.style.background= ok ? 'rgba(87,166,87,0.18)' : 'rgba(214,73,73,0.18)';\n    feedback.style.color= ok ? '#7CD992' : '#FF8A8A';\n    feedback.style.border='1px solid ' + (ok ? '#3C8C4A' : '#A33A3A');\n    feedback.textContent= (ok ? '✔ ' : '⚠ ') + msg;\n  }\n  btn.addEventListener('mouseover', function(){ btn.style.filter='brightness(1.1)'; btn.style.transform='translateY(-2px)'; });\n  btn.addEventListener('mouseout', function(){ btn.style.filter='brightness(1)'; btn.style.transform='translateY(0)'; });\n  btn.addEventListener('click', function(){\n    var raw = input.value;\n    var val = parseInt(raw, 10);\n    if (!raw || isNaN(val) || val < 1000) {\n      showFeedback('Informe um intervalo numérico válido (mínimo 1000ms).', false);\n      return;\n    }\n    btn.disabled = true;\n    btn.textContent = 'Enviando...';\n    fetch('http://localhost:3000/api/control/interval', {\n      method: 'POST',\n      headers: {'Content-Type': 'application/json'},\n      body: JSON.stringify({ intervalo: val })\n    })\n    .then(function(res){\n      return res.json().then(function(data){ return { ok: res.ok, data: data }; }).catch(function(){ return { ok: res.ok, data: {} }; });\n    })\n    .then(function(result){\n      if (result.ok) {\n        showFeedback(result.data.message || 'Intervalo atualizado com sucesso.', true);\n      } else {\n        showFeedback(result.data.error || 'O servidor rejeitou o comando.', false);\n      }\n    })\n    .catch(function(){\n      showFeedback('Falha de comunicação com o servidor (verifique se o coletor está rodando em :3000).', false);\n    })\n    .finally(function(){\n      btn.disabled = false;\n      btn.textContent = 'Aplicar Intervalo';\n    });\n  });\n})();\n</script>",
                 "mode": "html"
               }
             },
@@ -1077,6 +1077,208 @@
             "version": "13.1.0"
           }
         }
+      },
+      "panel-10": {
+        "kind": "Panel",
+        "spec": {
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "PBFA97CFB590B2093"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "editorMode": "code",
+                        "exemplar": false,
+                        "expr": "up{job=\"microservice-dashboard\"}",
+                        "instant": true,
+                        "legendFormat": "Agente Coletor",
+                        "range": false
+                      },
+                      "version": "v0"
+                    },
+                    "refId": "A"
+                  }
+                }
+              ],
+              "queryOptions": {},
+              "transformations": []
+            }
+          },
+          "description": "Usa a métrica nativa 'up' do Prometheus: cai para 0 sempre que o scrape em /metrics falhar, ou seja, sempre que houver um erro de comunicação com o Agente Coletor (ex: container fora do ar).",
+          "id": 10,
+          "links": [],
+          "title": "Status do Agente Coletor (Comunicação)",
+          "vizConfig": {
+            "group": "stat",
+            "kind": "VizConfig",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "thresholds"
+                  },
+                  "mappings": [
+                    {
+                      "type": "value",
+                      "options": {
+                        "0": {
+                          "color": "red",
+                          "index": 0,
+                          "text": "🔴 SEM COMUNICAÇÃO"
+                        },
+                        "1": {
+                          "color": "green",
+                          "index": 1,
+                          "text": "🟢 CONECTADO"
+                        }
+                      }
+                    }
+                  ],
+                  "noValue": "🔴 SEM COMUNICAÇÃO",
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "red",
+                        "value": 0
+                      },
+                      {
+                        "color": "green",
+                        "value": 1
+                      }
+                    ]
+                  },
+                  "unit": "none"
+                },
+                "overrides": []
+              },
+              "options": {
+                "colorMode": "background",
+                "graphMode": "none",
+                "justifyMode": "auto",
+                "orientation": "horizontal",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "showPercentChange": false,
+                "text": {
+                  "titleSize": 16,
+                  "valueSize": 24
+                },
+                "textMode": "value_and_name",
+                "wideLayout": true
+              }
+            },
+            "version": "13.1.0"
+          }
+        }
+      },
+      "panel-11": {
+        "kind": "Panel",
+        "spec": {
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "hidden": false,
+                    "query": {
+                      "datasource": {
+                        "name": "PBFA97CFB590B2093"
+                      },
+                      "group": "prometheus",
+                      "kind": "DataQuery",
+                      "spec": {
+                        "editorMode": "code",
+                        "exemplar": false,
+                        "expr": "probe_validation_errors_total",
+                        "instant": true,
+                        "legendFormat": "Erros de Validação",
+                        "range": false
+                      },
+                      "version": "v0"
+                    },
+                    "refId": "A"
+                  }
+                }
+              ],
+              "queryOptions": {},
+              "transformations": []
+            }
+          },
+          "description": "Conta mensagens MQTT recebidas com schema inválido (probe_id/uptime/latencia/ultimo_heartbeat ausentes ou incorretos) ou JSON malformado. Antes só aparecia no log do servidor — agora fica visível para o administrador na interface.",
+          "id": 11,
+          "links": [],
+          "title": "Erros de Validação (Total)",
+          "vizConfig": {
+            "group": "stat",
+            "kind": "VizConfig",
+            "spec": {
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "thresholds"
+                  },
+                  "mappings": [],
+                  "noValue": "0",
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": 0
+                      },
+                      {
+                        "color": "red",
+                        "value": 1
+                      }
+                    ]
+                  },
+                  "unit": "none"
+                },
+                "overrides": []
+              },
+              "options": {
+                "colorMode": "background",
+                "graphMode": "none",
+                "justifyMode": "auto",
+                "orientation": "horizontal",
+                "percentChangeColorMode": "standard",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "showPercentChange": false,
+                "text": {
+                  "titleSize": 16,
+                  "valueSize": 24
+                },
+                "textMode": "value_and_name",
+                "wideLayout": true
+              }
+            },
+            "version": "13.1.0"
+          }
+        }
       }
     },
     "layout": {
@@ -1198,6 +1400,32 @@
               "width": 24,
               "x": 0,
               "y": 36
+            }
+          },
+          {
+            "kind": "GridLayoutItem",
+            "spec": {
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-10"
+              },
+              "height": 6,
+              "width": 12,
+              "x": 0,
+              "y": 44
+            }
+          },
+          {
+            "kind": "GridLayoutItem",
+            "spec": {
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-11"
+              },
+              "height": 6,
+              "width": 12,
+              "x": 12,
+              "y": 44
             }
           }
         ]

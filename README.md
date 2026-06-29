@@ -33,8 +33,10 @@ Em vez de conexões abertas por socket puro ou requisições síncronas HTTP pur
 | **Mutex por probe_id** | `src/state/lock.js` | Serializa atualizações do mesmo probe, evitando "lost update" quando duas mensagens MQTT do mesmo `probe_id` chegam quase simultaneamente. |
 | **Persistência em disco** | `src/state/persistence.js` | Grava um snapshot (`data/state.json`) a cada 10s; o servidor restaura esse estado ao subir, então um restart do container não apaga o histórico de eventos. |
 | **Watchdog de disponibilidade** | `checkStaleProbes()` em `src/state/store.js` | Roda a cada 5s; marca um probe como `DOWN` se ele não publicar heartbeat por mais de `PROBE_TIMEOUT_MS` (padrão: 15.000ms). Alimenta o gauge `probe_status` no Prometheus, usado para o alerta visual no Grafana. |
+| **Erros de validação visíveis na interface** | `probe_validation_errors_total` em `src/collectors/metricsCollector.js` | Toda mensagem MQTT rejeitada (schema inválido ou JSON malformado) incrementa esse contador, exibido no painel **"Erros de Validação"** do Grafana — antes só aparecia no log do servidor. |
+| **Erro de comunicação com o Agente Coletor** | métrica nativa `up{job="microservice-dashboard"}` do Prometheus | Cai para `0` automaticamente se o scrape em `/metrics` falhar (ex: container do coletor caiu). Exibido no painel **"Status do Agente Coletor (Comunicação)"**. |
 
-Esses três mecanismos rodam automaticamente junto com o servidor — não exigem nenhum comando extra para serem ativados.
+Esses mecanismos rodam automaticamente junto com o servidor — não exigem nenhum comando extra para serem ativados.
 
 ---
 
@@ -56,10 +58,6 @@ Esses três mecanismos rodam automaticamente junto com o servidor — não exige
 
 ```text
 microservice-dashboard/
-├── dashboard/                       # GUI do Administrador (Entrega 3) — HTML/CSS/JS puro
-│   ├── index.html                   # Estrutura da interface (tabela, cards, painel, gráficos)
-│   ├── style.css                    # Tema escuro, badges pulsantes, barras de latência
-│   └── app.js                       # Polling assíncrono, DOM diff, controle de intervalo, Chart.js
 ├── docs/
 │   ├── protocol.md                  # Contrato das rotas HTTP e payloads MQTT
 │   └── state-model.md               # Modelagem detalhada das estruturas em memória
@@ -69,19 +67,19 @@ microservice-dashboard/
 ├── mosquitto/
 │   └── mosquitto.conf               # Configurações de portas e permissões do Broker
 ├── probes/
-│   ├── autenticacao.js              # Autenticação    — latência 10–30ms (rápido)
-│   ├── pagamentos.js                # Pagamentos       — latência 100–200ms (lento)
-│   ├── pedidos.js                   # Pedidos          — latência moderada
-│   ├── estoque.js                   # Estoque          — latência 20–60ms (moderado)
-│   ├── gateway.js                   # Gateway          — latência 5–15ms (porta de entrada)
-│   ├── notificacoes.js              # Notificações     — latência 50–200ms (emails/SMS)
-│   ├── relatorios.js                # Relatórios       — latência 100–500ms (processamento pesado)
-│   └── cache.js                     # Cache (Redis)    — latência 1–5ms (ultra-rápido)
+│   ├── autenticacao.js              # Simulador do Microsserviço de Autenticação
+│   ├── pagamentos.js                # Simulador do Microsserviço de Pagamentos
+│   ├── pedidos.js                   # Simulador do Microsserviço de Pedidos
+│   ├── estoque.js                   # Simulador do Microsserviço de Estoque
+│   ├── gateway.js                   # Simulador do Microsserviço de Gateway
+│   ├── notificacoes.js              # Simulador do Microsserviço de Notificações
+│   ├── relatorios.js                # Simulador do Microsserviço de Relatórios
+│   └── cache.js                     # Simulador do Microsserviço de Cache
 ├── prometheus/
 │   └── prometheus.yml               # Configuração de alvos e intervalos de scrape
 ├── src/
 │   ├── collectors/
-│   │   └── metricsCollector.js      # Tradutor do dicionário para formato do Prometheus (inclui probe_status)
+│   │   └── metricsCollector.js      # Tradutor do dicionário para formato do Prometheus (uptime, latência, heartbeat, probe_status e probe_validation_errors_total)
 │   ├── handlers/
 │   │   └── mqttHandler.js           # Escutador de eventos MQTT e orquestrador de fluxo
 │   ├── routes/
@@ -92,114 +90,121 @@ microservice-dashboard/
 │   │   └── persistence.js           # Snapshot em disco (data/state.json)
 │   ├── validators/
 │   │   └── metricValidator.js       # Middleware de validação sintática do JSON
-│   └── server.js                    # Express (Porta 3000): serve a GUI + Ingestor MQTT
+│   └── server.js                    # Inicializador do Express (Porta 3000) e Ingestor MQTT
 ├── data/                            # (gerado em runtime) snapshot de persistência — ignorado pelo Git
 ├── admin_client.js                  # Cliente administrador alternativo via terminal
 ├── docker-compose.yml               # Manifest de criação de contêineres da infraestrutura
 ├── package.json                     # Manifest de scripts e dependências do ecossistema
-├── run_all_probes.sh                # Inicia os 8 probes em background (nohup)
-├── stop_probes.sh                   # Encerra todos os probes em execução
-└── run_probes.js                    # Script Maestro Interativo (alternativa para os 3 probes originais)
+└── run_probes.js                    # Script Maestro Interativo para controle de Probes
 ```
 
 ---
 
-## 🚀 Como Rodar
+## 🚀 Como Executar o Projeto
 
-### Pré-requisitos
-
-- **Node.js 18+** e npm
-- **Docker** e **Docker Compose**
-
-### 1. Iniciar a infraestrutura (Broker MQTT + Servidor + Prometheus + Grafana)
-
-```bash
-docker-compose up -d --build
-```
-
-Aguarde alguns segundos para os contêineres subirem. Para acompanhar o log do agente coletor:
-
-```bash
-docker-compose logs -f collector
-```
-
-### 2. Instalar dependências dos probes (para rodá-los localmente)
+### 1. Preparação das Dependências Locais
 
 ```bash
 npm install
 ```
 
-### 3. Iniciar todos os probes em background
-
-O script `run_all_probes.sh` sobe os **8 probes** de uma vez, cada um com `nohup`, e grava os logs em `logs/`:
+### 2. Inicialização da Infraestrutura Docker (Broker + Servidor + Prometheus + Grafana)
 
 ```bash
-chmod +x run_all_probes.sh stop_probes.sh
-./run_all_probes.sh
+docker-compose up -d --build
 ```
 
-Saída esperada (PIDs e arquivos de log de cada probe):
-
-```
-🔌 Broker MQTT: mqtt://localhost:1883
-📡 Iniciando 8 probes em background...
-
-  ▶ probe_autenticacao     PID 12001   → logs/autenticacao.log
-  ▶ probe_pagamentos       PID 12002   → logs/pagamentos.log
-  ▶ probe_pedidos          PID 12003   → logs/pedidos.log
-  ▶ probe_estoque          PID 12004   → logs/estoque.log
-  ▶ probe_gateway          PID 12005   → logs/gateway.log
-  ▶ probe_notificacoes     PID 12006   → logs/notificacoes.log
-  ▶ probe_relatorios       PID 12007   → logs/relatorios.log
-  ▶ probe_cache            PID 12008   → logs/cache.log
-```
-
-> Os probes publicam em `mqtt://localhost:1883` (broker exposto pelo contêiner do Mosquitto). Para apontar para outro host, defina `MQTT_BROKER_URL` antes de rodar o script.
-
-### 4. Abrir o Dashboard
-
-A **GUI do Administrador** (interface nativa desta entrega) é servida pelo próprio agente coletor em:
-
-```
-http://localhost:3000
-```
-
-A interface é em **HTML/CSS/JS puro** (sem framework, sem build) e atualiza sozinha — **sem F5**. Ela oferece:
-
-- **Cards de estatísticas globais** — probes online, latência média, uptime do servidor e total de ingestões MQTT.
-- **Tabela de status** com `PROBE_ID`, badge de status (🟢 ONLINE / 🔴 **DOWN** com alerta pulsante), uptime formatado, latência (valor + barra de intensidade), último heartbeat ("há X s") e ingestões. Probes **DOWN sobem automaticamente ao topo**, e os botões de ordenação (latência ↑↓, uptime ↑↓, status) reordenam o restante.
-- **Painel de controle remoto** — altera o intervalo de coleta de todos os probes via MQTT, com atalhos (1s/3s/5s/10s/30s), validação (1000–60000ms) e feedback de sucesso/erro.
-- **Feed de eventos recentes** com ícone por tipo e tempo relativo.
-- **Gráficos (Chart.js)** — latência por probe ao longo do tempo (com limiares de 50ms/150ms), comparativo de uptime e latência média geral.
-
-Se o servidor cair, um **banner vermelho** aparece no topo e o dashboard **reconecta sozinho** quando ele voltar — sem recarregar a página.
-
-### 5. Parar os probes
+Aguarde alguns segundos para todos os contêineres subirem. Você pode verificar o status com:
 
 ```bash
-./stop_probes.sh
+docker-compose logs -f collector
 ```
 
-### Rodar um probe específico manualmente
+O console do servidor (`collector`) exibirá automaticamente uma **tabela de status** consolidada a cada 10 segundos:
+
+```
+════════════════════════════════════════════════════════════════
+  [ADMIN] STATUS DOS MICROSSERVIÇOS — 2026-06-15T12:00:10.000Z
+════════════════════════════════════════════════════════════════
+  PROBE_ID                  UPTIME(s)    LATÊNCIA(ms)   ÚLTIMO HEARTBEAT
+  ────────────────────────────────────────────────────────────────────────
+  probe_pagamentos          30           145ms          2026-06-15T12:00:05.000Z
+  probe_autenticacao        30           22ms           2026-06-15T12:00:05.000Z
+  probe_pedidos             30           67ms           2026-06-15T12:00:05.000Z
+────────────────────────────────────────────────────────────────
+  Probes ativos: 3 | Total ingestões: 18 | Erros de validação: 0
+════════════════════════════════════════════════════════════════
+```
+
+### 3. Execução dos Múltiplos Probes (Script Maestro Interativo)
+
+Para simular múltiplos microsserviços publicando heartbeats simultaneamente, execute o script maestro em um terminal separado:
 
 ```bash
-node probes/autenticacao.js
-MQTT_BROKER_URL=mqtt://localhost:1883 node probes/estoque.js
+node run_probes.js
 ```
 
-> **Alternativa interativa:** `node run_probes.js` sobe os 3 probes originais e permite derrubá-los/ressuscitá-los pelo teclado (`1`/`2`/`3`, `Ctrl+C` para sair) — útil para demonstrar o alerta de indisponibilidade (DOWN) ao vivo.
+O script inicia **todos os 8 probes automaticamente** (`pagamentos`, `autenticacao`, `pedidos`, `estoque`, `gateway`, `notificacoes`, `relatorios`, `cache`). Cada probe mantém **conexão persistente** com o broker e publica a cada 5 segundos sem reconectar.
+
+**Controles do teclado durante a execução (modo interativo, em foreground):**
+
+- `1` — Interromper/Ressuscitar o microsserviço de Pagamentos
+- `2` — Interromper/Ressuscitar o microsserviço de Autenticação
+- `3` — Interromper/Ressuscitar o microsserviço de Pedidos
+- `4` a `8` — Liga/desliga os probes adicionais (`estoque`, `gateway`, `notificacoes`, `relatorios`, `cache`)
+- `Ctrl + C` — Derrubar todos os processos filhos e sair
+
+#### Rodando os probes em background
+
+Para deixar os probes publicando heartbeats sem precisar manter um terminal aberto (por exemplo, em um servidor remoto), rode o maestro em background com `nohup`:
+
+```bash
+nohup node run_probes.js > probes.log 2>&1 &
+```
+
+- Os controles de teclado (1–8) ficam desativados nesse modo (não há terminal interativo), mas os probes continuam publicando normalmente — o script detecta automaticamente que não está em um TTY e ignora a leitura de teclado em vez de travar.
+- Acompanhe a saída com `tail -f probes.log`.
+- Para encerrar todos os probes rodando em background, descubra o PID do processo pai e finalize-o:
+
+```bash
+pgrep -f "node run_probes.js"
+kill <PID>
+```
+
+Cada probe individual também pode ser executado isoladamente em background, se você quiser simular apenas um microsserviço específico:
+
+```bash
+nohup node probes/pagamentos.js > pagamentos.log 2>&1 &
+```
+
+### 4. Abrindo o Dashboard Gráfico (Interface do Administrador — Grafana)
+
+A interface gráfica do administrador é o **Grafana**, acessível em:
+
+```
+http://localhost:3001
+```
+
+**Login:** `admin` / `admin`
+
+A fonte de dados (Prometheus) e o dashboard ("Painel Central") já vêm **pré-configurados automaticamente** via provisionamento (`grafana/provisioning/`) — não é necessário criar nada manualmente, basta fazer login e abrir o dashboard em **Dashboards → Painel Central**.
+
+O dashboard contém:
+- **Tabela de status** com `probe_id`, status (🟢 ONLINE / 🔴 DOWN), uptime, latência e último heartbeat — clique no cabeçalho de qualquer coluna para ordenar crescente/decrescente (filtro visual exigido pela disciplina).
+- **Gráfico e bar gauge de latência** por probe, com cores por faixa (verde/amarelo/vermelho).
+- **Comparativo de uptime** e **latência máxima geral** ao longo do tempo.
+- **Painel "Status por Probe"** com alerta visual grande (🔴/🟢) por microsserviço.
+- **Painel de controle "Aumentar intervalo"**: campo numérico + botão "Aplicar Intervalo", que altera remotamente o intervalo de publicação (`N`) de todos os probes em tempo real, via MQTT. Mensagens de sucesso ou erro (intervalo inválido, falha de comunicação com o servidor) aparecem **dentro do próprio painel**, sem usar pop-ups do navegador.
+- **Painel "Status do Agente Coletor (Comunicação)"**: usa a métrica nativa `up` do Prometheus para indicar, em tempo real, se o servidor central está alcançável — fica vermelho automaticamente se o coletor cair ou o scrape falhar.
+- **Painel "Erros de Validação (Total)"**: mostra quantas mensagens MQTT foram rejeitadas por schema inválido. Antes esse erro só existia no log do servidor; agora é visível na interface.
+
+**Atualização automática:** o dashboard já vem com `autoRefresh: "5s"` definido no próprio JSON provisionado — a tabela e os painéis se atualizam sozinhos a cada 5 segundos assim que a página é aberta, sem nenhuma ação manual do administrador.
 
 ---
 
-## 📊 Visualização Alternativa (Grafana)
+### 5. Cliente de Debug via Terminal (uso interno — não é a interface do usuário)
 
-Além da GUI nativa, o **Grafana** continua disponível em `http://localhost:3001` (login `admin` / `admin`). A fonte de dados (Prometheus) e o "Painel Central" já vêm **pré-provisionados** (`grafana/provisioning/`) — basta abrir **Dashboards → Painel Central**. Configure o **auto-refresh** (ex.: `5s`) no canto superior direito para a tabela atualizar sozinha.
-
----
-
-### 5. Conectar o Cliente Administrador (Terminal — alternativa ao Grafana)
-
-Para visualizar o estado global dos microsserviços em **tempo real** diretamente no terminal (sem depender do console do Docker), abra um novo terminal e execute:
+`admin_client.js` é um utilitário de terminal usado durante o desenvolvimento para inspecionar rapidamente `/health` e `/services` sem abrir o navegador. **Ele não substitui o Grafana como interface gráfica** — é só uma ferramenta auxiliar de depuração. Para usá-lo:
 
 ```bash
 node admin_client.js
@@ -249,13 +254,11 @@ REFRESH=10 node admin_client.js
 
 | Serviço / Endpoint | Método | Descrição |
 |---|---|---|
-| `http://localhost:3000/` | GET | **GUI do Administrador** (dashboard estático servido pelo Express). |
-| `http://localhost:3000/api/info` | GET | Metadados do agente e índice de endpoints (antiga rota `/`). |
 | `http://localhost:3000/health` | GET | Diagnóstico operacional do Agente Coletor, tempo de atividade global e taxa de erros. |
 | `http://localhost:3000/services` | GET | Dump completo em formato JSON do dicionário mantido em memória RAM. |
 | `http://localhost:3000/events` | GET | Histórico temporal circular contendo os últimos 100 eventos relevantes do sistema. |
-| `http://localhost:3000/api/control/interval` | POST | Altera remotamente o intervalo de coleta de todos os probes via MQTT (`{ "intervalo": <ms> }`). |
 | `http://localhost:3000/metrics` | GET | Endpoint bruto OpenMetrics formatado para raspagem do Prometheus Server. |
+| `http://localhost:3000/api/control/interval` | POST | Altera remotamente o intervalo `N` de publicação dos probes (propagado via MQTT, tópico `probes/control`). Corpo: `{ "intervalo": <inteiro em ms, entre 1000 e 300000> }`. Usado pelo painel "Aumentar intervalo" do Grafana. |
 | `http://localhost:9090` | HTTP Web | Console nativo de expressões do Prometheus Server. |
 | `http://localhost:3001` | HTTP Web | Interface do Grafana para visualização de Dashboards (Credenciais: `admin/admin`). |
 
@@ -273,6 +276,17 @@ curl http://localhost:3000/events
 
 # Ver os últimos 5 eventos
 curl "http://localhost:3000/events?n=5"
+
+# Alterar remotamente o intervalo de coleta dos probes para 10s
+curl -X POST -H "Content-Type: application/json" \
+     -d '{"intervalo":10000}' \
+     http://localhost:3000/api/control/interval
+
+# Exemplo de rejeição (intervalo abaixo do mínimo permitido)
+curl -X POST -H "Content-Type: application/json" \
+     -d '{"intervalo":50}' \
+     http://localhost:3000/api/control/interval
+# -> 400 {"error":"O intervalo mínimo permitido é 1000ms, para não sobrecarregar o broker."}
 ```
 
 ---
